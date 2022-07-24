@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Directory Service, DHCP Option set
+Metadata: 
+  "AWS::CloudFormation::Interface": 
+    ParameterGroups: 
+      - Label: 
+          default: "Directory Service Configuration"
+        Parameters: 
+          - ADdnsName
+          - ADnetBiosName
+          - ADEdition
+    ParameterLabels: 
+      ADdnsName: 
+        default: "Directory Service DNS Name"
+      ADnetBiosName: 
+        default: "Directory Service NetBios Name"
+      ADEdition: 
+        default: "Directory Service Edition"
+
+#-------------------------------------------------------------------
+#Input Directory Service Parameters
+#-------------------------------------------------------------------
+Parameters:
+  ADdnsName:
+    Type: String
+    Default: "corp.example.com"
+
+  ADnetBiosName:
+    Type: String
+    Default: "AWS"
+
+  ADEdition:
+    Type: String
+    Default: "Standard"
+
+#-------------------------------------------------------------------
+#Create Directory Service
+#-------------------------------------------------------------------
+Resources:
+  myDirectory: 
+    Type: AWS::DirectoryService::MicrosoftAD
+    Properties: 
+      Name:
+        Ref : ADdnsName
+      Password: '{{resolve:ssm-secure:test-ad-password:1}}'
+      ShortName: 
+        Ref: ADnetBiosName
+      Edition:
+        Ref : ADEdition
+      VpcSettings: 
+        SubnetIds: 
+          - { "Fn::ImportValue": !Sub "test-application-subnet-1a" }
+          - { "Fn::ImportValue": !Sub "test-application-subnet-1c" }
+        VpcId: { "Fn::ImportValue": !Sub "test-vpc" }
+
+#-------------------------------------------------------------------
+#Create DHCP Option set
+#-------------------------------------------------------------------
+  myDHCPOptionSet:
+      Type: AWS::EC2::DHCPOptions
+      Properties: 
+        DomainName: !Ref ADdnsName
+        DomainNameServers:
+          - !Select [ '0', !GetAtt myDirectory.DnsIpAddresses ]
+          - !Select [ '1', !GetAtt myDirectory.DnsIpAddresses ]
+        Tags: 
+          - Key: Name
+            Value: test-dhcp-ad
+
+  myDHCPOptionAssociation:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties: 
+      DhcpOptionsId: !Ref myDHCPOptionSet
+      VpcId: { "Fn::ImportValue": !Sub "test-vpc" }
+
+
+#-------------------------------------------------------------------
+#OutPut
+#-------------------------------------------------------------------
+Outputs:
+  DirectoryID:
+    Description: Directory Service ID
+    Value: !Ref myDirectory
+    Export:
+      Name: !Sub "myDirectory-id"
+  PrimaryDNS:
+    Description: Directory Service DNS IPs
+    Value: !Select [ '0', !GetAtt myDirectory.DnsIpAddresses ]
+    Export:
+      Name: !Sub "myDirectory-primary-dns"
+  SecondaryDNS:
+    Description: Directory Service DNS IPs
+    Value: !Select [ '1', !GetAtt myDirectory.DnsIpAddresses ]
+    Export:
+      Name: !Sub "myDirectory-secondary-dns"
+  myDHCPOptionSet:
+    Description: DHCPOptionSet ID
+    Value: !Ref myDHCPOptionSet
+    Export:
+      Name: !Sub "myDHCPOptionSet-id"
